@@ -1,1 +1,104 @@
 #add in text prep & stop word customization code
+
+import pandas as pd
+import numpy as n
+import matplotlib.pyplot as plt
+import os
+import string
+import nltk
+from nltk import pos_tag
+from nltk.corpus import stopwords
+from nltk.tokenize import WhitespaceTokenizer
+from nltk.stem import WordNetLemmatizer
+from nltk.corpus import wordnet
+from sklearn.feature_extraction.text import TfidfVectorizer
+import re
+
+#Find the cities with the most businesses to pull reviews from to help with memory limitations
+business = pd.read_json('yelp_academic_dataset_business.json',lines=True)
+business.head()
+
+#building the count of businesses per city
+threshold = 100 # we can adjust this as needed- min threshold of city instances
+for col in business.columns:
+    value_counts = business['city'].value_counts() # Specific column 
+    to_remove = value_counts[value_counts <= threshold].index
+    business[col].replace(to_remove, n.nan, inplace=True)
+
+#building the count of open and closed businesses per city
+df=pd.DataFrame(business.groupby(['city','is_open'], 
+                  as_index=False)['business_id'].count()
+          .agg(lambda x: list(x)))
+#pivot table to organize the data, then flatten it
+res = df.pivot_table(index=['city'], columns=['is_open'],
+                     values='business_id', aggfunc='first', fill_value=0)
+df = pd.DataFrame(res)
+flattened = pd.DataFrame(res.to_records())
+flattened= flattened.rename(columns= {'1':'Open','0':'Closed'})
+
+#Create the ratio of open to closed, so we can also pick a city with a healthy ratio/enough closed for prediction
+flattened['open_to_closed_ratio'] = flattened['Open']/flattened['Closed']
+
+cities=flattened[flattened['open_to_closed_ratio'] <= 4.3]
+
+#We can change this out with any city from above - just starting with Toronto
+Toronto = business[business['city'] == 'Toronto']
+Toronto.describe()
+
+#Look at the stars distribution
+plt.hist(Toronto['stars'])
+plt.show()
+
+#Bring in the reviews so we can specifically pull ones for our city based on business ID and category
+review = pd.read_csv('yelp_review.csv')
+food_related=Toronto[Toronto['categories'].str.contains("Restaurants|Food|Bakery|Cafe")==True]
+food_related=pd.DataFrame(food_related)
+
+#merge/join with our business table
+merged_food=pd.merge(review, food_related, on='business_id')
+trunc_merged_food=merged_food[['review_id','user_id','business_id','stars_x','date','text','stars_y','review_count','categories','attributes']]
+#Check out our data desc
+trunc_merged_food.describe()
+
+#pull by 100 review counts +
+trunc_merged_food_100=trunc_merged_food[trunc_merged_food['review_count'] >= 100]
+trunc_merged_food_100
+
+#Cleaning the review text for NLP - this def cleans row by row, also includes a wordnet if interested
+
+def get_wordnet_pos(pos_tag):
+    if pos_tag.startswith('J'):
+        return wordnet.ADJ
+    elif pos_tag.startswith('V'):
+        return wordnet.VERB
+    elif pos_tag.startswith('N'):
+        return wordnet.NOUN
+    elif pos_tag.startswith('R'):
+        return wordnet.ADV
+    else:
+        return wordnet.NOUN
+
+def clean_text(text):
+    # lower text
+    text = text.lower()
+    # tokenize text and remove puncutation
+    text = [word.strip(string.punctuation) for word in text.split(" ")]
+    # remove words that contain numbers
+    text = [word for word in text if not any(c.isdigit() for c in word)]
+    # remove stop words
+    stop = stopwords.words('english')
+    text = [x for x in text if x not in stop]
+    # remove empty tokens
+    text = [t for t in text if len(t) > 0]
+    # pos tag text
+    pos_tags = pos_tag(text)
+    # lemmatize text - leaving this piece out for now - not super helpful on short text
+    #text = [WordNetLemmatizer().lemmatize(t[0], get_wordnet_pos(t[1])) for t in pos_tags]
+    # remove words with only one letter
+    text = [t for t in text if len(t) > 1]
+    # join all
+    text = " ".join(text)
+    return(text)
+
+#apply the definition to each row
+trunc_merged_food_100['Body_clean']=trunc_merged_food_100['text'].apply(lambda x: clean_text(x))
