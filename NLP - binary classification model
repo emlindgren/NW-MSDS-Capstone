@@ -1,1 +1,219 @@
-#add in binary classification model here
+#The code for this was for classifying fake news, so some light adaption will be needed but this should get you all the way
+#to a basic first RNN with binary cross entropy
+
+#All the libraries 
+
+from tldextract import extract
+import pandas as pd, tldextract
+import numpy as np
+import re 
+import matplotlib.pyplot as pl
+import string
+import nltk
+from nltk import pos_tag
+from nltk.corpus import stopwords
+from nltk.tokenize import WhitespaceTokenizer
+from nltk.stem import WordNetLemmatizer
+from nltk.corpus import wordnet
+import os
+import json 
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.preprocessing import LabelEncoder
+from sklearn.model_selection import train_test_split
+import keras
+from keras.preprocessing import sequence
+from keras.preprocessing.text import Tokenizer
+from keras.layers import LSTM, Activation, Dense, Dropout, Input, Embedding
+from keras.optimizers import RMSprop
+from keras.callbacks import EarlyStopping
+from keras.preprocessing.sequence import pad_sequences
+from keras.utils.np_utils import to_categorical
+from keras.models import Sequential, Model
+from keras.layers import Dense, Activation, Flatten
+from sklearn.model_selection import KFold
+from sklearn.model_selection import cross_val_score
+from gensim.models import Word2Vec
+import tensorflow as tf
+from sklearn.decomposition import TruncatedSVD
+from sklearn.feature_extraction.text import CountVectorizer
+from collections import Counter
+
+
+import plotly.offline as py
+import plotly.graph_objs as go
+py.init_notebook_mode(connected=True)
+import matplotlib as plt
+
+#Upload file
+df=pd.read_csv('data.csv')
+df.columns
+
+#Add in a column to look at word counts for both headline and body - ***alter this for text columns***
+df['Headline_ct']= df['Headline'].str.split().str.len()
+df['Body_ct']= df['Body'].str.split().str.len()
+
+#Add in a column to look at specific puncutation counts for both headline and body.  ***alter this for text columns***
+df['Headline_punc_ct']= df['Headline'].str.count('!?#')
+df['Body_punc_ct']= df['Body'].str.count('!?#')
+
+#Do a quick check on the data which will be your binary label
+df['Label'].value_counts()
+
+#visualize word count distributions
+pl.hist(df['Body_ct'], bins=100)
+pl.title('Count of words in Body')
+pl.show
+
+#Use some definitions to clean up the text of the body.  
+
+df['Body']=df['Body'].astype(str)
+
+def get_wordnet_pos(pos_tag):
+    if pos_tag.startswith('J'):
+        return wordnet.ADJ
+    elif pos_tag.startswith('V'):
+        return wordnet.VERB
+    elif pos_tag.startswith('N'):
+        return wordnet.NOUN
+    elif pos_tag.startswith('R'):
+        return wordnet.ADV
+    else:
+        return wordnet.NOUN
+
+def clean_text(text):
+    # lower text
+    text = text.lower()
+    # tokenize text and remove puncutation
+    text = [word.strip(string.punctuation) for word in text.split(" ")]
+    # remove words that contain numbers
+    text = [word for word in text if not any(c.isdigit() for c in word)]
+    # remove stop words
+    stop = stopwords.words('english')
+    text = [x for x in text if x not in stop]
+    # remove empty tokens
+    text = [t for t in text if len(t) > 0]
+    # pos tag text
+    pos_tags = pos_tag(text)
+    # lemmatize text
+    text = [WordNetLemmatizer().lemmatize(t[0], get_wordnet_pos(t[1])) for t in pos_tags]
+    # remove words with only one letter
+    text = [t for t in text if len(t) > 1]
+    # join all
+    text = " ".join(text)
+    return(text)
+
+df['Body_clean']=df['Body'].apply(lambda x: clean_text(x))
+
+#Tokenize the text
+def tokenize(text):
+    tokens=re.split('\W+',text)
+    return tokens
+
+df['Body_tokens']=df['Body_clean'].apply(lambda x: tokenize(x.lower()))
+
+final_processed_tokens=df['Body_tokens'].values.tolist()
+
+#Quick exploration of most common terms 
+
+all_words = [word for tokens in final_processed_tokens for word in tokens]
+VOCAB = sorted(list(set(all_words)))
+print("%s words total, with a vocabulary size of %s" % (len(all_words), len(VOCAB)))
+count_all_words = Counter(all_words)
+count_all_words.most_common(50)
+
+final_processed_tokens
+
+#First pass at a model, setup
+X = df.Body_clean
+Y = df.Label
+le = LabelEncoder()
+Y = le.fit_transform(Y)
+Y = Y.reshape(-1,1)
+
+X_train,X_test,Y_train,Y_test = train_test_split(X,Y,test_size=0.25)
+
+#Inputs for RNN
+max_words = 39285 #number of unique words in the data set
+max_len = 5610 #longest number of words in a body/document
+tok = Tokenizer(num_words=max_words) 
+tok.fit_on_texts(X_train)
+sequences = tok.texts_to_sequences(X_train)
+sequences_matrix = sequence.pad_sequences(sequences,maxlen=max_len)
+
+def RNN1():
+    inputs = Input(name='inputs',shape=[max_len])
+    layer = Embedding(max_words,10,input_length=max_len)(inputs) #use embedding rather than one hot encoding
+    layer = LSTM(10)(layer) #basic LSTM layer
+    layer = Dropout(0.5)(layer) #use to prevent overfitting
+    layer = Dense(1,name='out_layer')(layer) 
+    layer = Activation('sigmoid')(layer) #since this is binary classification, should end with a sigmoid layer
+    model = Model(inputs=inputs,outputs=layer)
+    return model
+
+model1 = RNN1()
+model1.summary()
+model1.compile(loss='binary_crossentropy',optimizer=RMSprop(),metrics=['accuracy'])
+
+#Stop the model if val loss isn't improving 
+history10=model1.fit(sequences_matrix,Y_train,batch_size=150,epochs=200,
+          validation_split=0.2,callbacks=[EarlyStopping(monitor='val_loss',min_delta=0.0001)])
+
+print(history10.history.keys())
+# summarize history10 for accuracy
+pl.plot(history10.history['acc'])
+pl.plot(history10.history['val_acc'])
+pl.title('model accuracy (hidden layer of 10)')
+pl.ylabel('accuracy')
+pl.xlabel('epoch')
+pl.legend(['train', 'test'], loc='upper left')
+pl.show()
+# summarize history10 for loss
+pl.plot(history10.history['loss'])
+pl.plot(history10.history['val_loss'])
+pl.title('model loss (hidden layer of 10)')
+pl.ylabel('loss')
+pl.xlabel('epoch')
+pl.legend(['train', 'test'], loc='upper left')
+pl.show()
+
+test_sequences = tok.texts_to_sequences(X_test)
+test_sequences_matrix = sequence.pad_sequences(test_sequences,maxlen=max_len)
+
+accr1 = model1.evaluate(test_sequences_matrix,Y_test)
+
+print('Test set\n  Loss: {:0.3f}\n  Accuracy: {:0.3f}'.format(accr1[0],accr1[1]))
+
+
+###############Taking it a step further, looking at word2vec and SVD
+
+from gensim.models import Word2Vec
+import nltk
+nltk.download('punkt')
+
+df['tokenized'] = df.apply(lambda row : nltk.word_tokenize(row['Body_clean']), axis=1)
+
+model_w2v = Word2Vec(df['tokenized'], size=100)
+X = model_w2v[model_w2v.wv.vocab]
+
+from sklearn.decomposition import TruncatedSVD
+tsvd = TruncatedSVD(n_components=6, n_iter=10)
+result = tsvd.fit_transform(X)
+tsvd_word_list = []
+words = list(model_w2v.wv.vocab)
+for i, word in enumerate(words):
+    tsvd_word_list.append(word)
+
+trace = go.Scatter(
+    x = result[0:number_of_words, 0], 
+    y = result[0:number_of_words, 1],
+    mode = 'markers',
+    text= tsvd_word_list[0:number_of_words]
+)
+
+layout = dict(title= 'SVD 1 vs SVD 2',
+              yaxis = dict(title='SVD 2'),
+              xaxis = dict(title='SVD 1'),
+              hovermode= 'closest')
+
+fig = dict(data = [trace], layout= layout)
+py.iplot(fig)
