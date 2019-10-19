@@ -6,6 +6,8 @@ from sklearn.ensemble import RandomForestClassifier
 
 dataset = pd.read_csv('data.csv')
 
+#consider feature engineering based on counts of important words, length of review, time since last review, etc.
+
 #Will want to adjust this piece based on your features columns and label column
 X = dataset.iloc[:, 0:4].values
 y = dataset.iloc[:, 4].values
