@@ -1,1 +1,126 @@
 
+#starting from post eda, with stop word removal and tfidf clustering
+
+#Library inputs
+import pandas as pd
+import nltk
+from nltk.corpus import stopwords
+import datetime
+import numpy as np
+import re
+import matplotlib.pyplot as plt
+from textblob import TextBlob
+from nltk.tokenize import sent_tokenize, word_tokenize 
+from sklearn.feature_extraction.text import TfidfTransformer
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.cluster import KMeans
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib.cm as cm
+from sklearn.cluster import KMeans
+from sklearn.cluster import MiniBatchKMeans
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.decomposition import PCA
+from sklearn.manifold import TSNE
+from wordcloud import WordCloud, STOPWORDS, ImageColorGenerator
+from sklearn.datasets import make_blobs
+from sklearn.cluster import KMeans
+from sklearn.metrics import silhouette_samples, silhouette_score
+import matplotlib.pyplot as plt
+import matplotlib.cm as cm
+import numpy as np
+from nltk.stem.snowball import SnowballStemmer
+from gensim.models import Word2Vec
+ 
+ 
+#Remove stop words and other common words
+stop = stopwords.words('english')
+stop2 = ['allie','hi','i','you','us','thank','im', 'alex','connecting','local','agent', 'yeah','okay','yes','um',
+        'hey','uh']
+messages['text_clean_nointro']=messages['text_clean_nointro'].astype(str)
+messages['text_clean_nointro']=messages['text_clean_nointro'].apply(lambda x: " ".join(x for x in x.split() if x not in stop))
+messages['text_clean_nointro']=messages['text_clean_nointro'].apply(lambda x: " ".join(x for x in x.split() if x not in stop2))
+messages['text_clean_nointro']=messages['text_clean_nointro'].str.replace('\d+', '')
+#conversations['text_clean'] = conversations['text_clean'].str.replace('\d+', '')
+messages
+
+#Tokenization
+#messages_from_beth['text_clean_tokens'] = word_tokenize(messages_from_beth['text_clean'])
+messages['text_clean_nointro_tokens']=messages['text_clean_nointro'].apply(nltk.word_tokenize)
+messages
+
+stemmer = SnowballStemmer("english")
+
+def stemming(text):    
+    '''a function which stems each word in the given text'''
+    text = [stemmer.stem(word) for word in text.split()]
+    return " ".join(text) 
+messages['text_clean_nointro_stemmed']=messages['text_clean_nointro'].apply(stemming)
+messages.head(10)
+
+# start with ngrams of 1 word
+tfidf_vectorizer=TfidfVectorizer(use_idf=True, ngram_range = (1,1), min_df = 400)
+tfidf_vectorizer_vectors=tfidf_vectorizer.fit_transform(messages['text_clean_nointro_stemmed'])
+fitted_vectorizer=tfidf_vectorizer.fit(messages['text_clean_nointro_stemmed'])
+
+
+# get the first vector out (for the first document)
+first_vector_tfidfvectorizer=tfidf_vectorizer_vectors[0]
+first_vector_tfidfvectorizer
+
+# place tf-idf values in a pandas data frame - just a gut check here to see if I should remove any other words
+df = pd.DataFrame(first_vector_tfidfvectorizer.T.todense(), index=tfidf_vectorizer.get_feature_names(), columns=["tfidf"])
+df.sort_values(by=["tfidf"],ascending=False)
+
+def find_optimal_clusters(data, max_k):
+    iters = range(1, max_k+1, 1)
+    
+    sse = []
+    for k in iters:
+        sse.append(MiniBatchKMeans(n_clusters=k, init_size=1024, batch_size=2048, random_state=20).fit(data).inertia_)
+        print('Fit {} clusters'.format(k))
+        
+    f, ax = plt.subplots(1, 1)
+    ax.plot(iters, sse, marker='o')
+    ax.set_xlabel('Cluster Centers')
+    ax.set_xticks(iters)
+    ax.set_xticklabels(iters)
+    ax.set_ylabel('SSE')
+    ax.set_title('SSE by Cluster Center Plot')
+    
+find_optimal_clusters(tfidf_vectorizer_vectors, 15)
+
+clusters = MiniBatchKMeans(n_clusters=9, random_state=20).fit_predict(tfidf_vectorizer_vectors)
+
+def plot_tsne_pca(data, labels):
+    max_label = max(labels)
+    max_items = np.random.choice(range(data.shape[0]), size=200, replace=False)
+    
+    pca = PCA(n_components=12).fit_transform(data[max_items,:].todense())
+    tsne = TSNE().fit_transform(PCA(n_components=12).fit_transform(data[max_items,:].todense()))
+    
+    
+    idx = np.random.choice(range(pca.shape[0]), size=200, replace=False)
+    label_subset = labels[max_items]
+    label_subset = [cm.hsv(i/max_label) for i in label_subset[idx]]
+    
+    f, ax = plt.subplots(1, 2, figsize=(14, 6))
+    
+    ax[0].scatter(pca[idx, 0], pca[idx, 1], c=label_subset, label=True)
+    ax[0].set_title('PCA Cluster Plot')
+    
+    ax[1].scatter(tsne[idx, 0], tsne[idx, 1], c=label_subset, label=True)
+    ax[1].set_title('TSNE Cluster Plot')
+    
+plot_tsne_pca(tfidf_vectorizer_vectors, clusters)
+
+def get_top_keywords(data, clusters, labels, n_terms):
+    df = pd.DataFrame(data.todense()).groupby(clusters).mean()
+    
+    for i,r in df.iterrows():
+        print('\nCluster {}'.format(i))
+        print(','.join([labels[t] for t in np.argsort(r)[-n_terms:]]))
+            
+get_top_keywords(tfidf_vectorizer_vectors, clusters, fitted_vectorizer.get_feature_names(), 10)
