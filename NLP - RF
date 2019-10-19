@@ -1,1 +1,34 @@
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
 
+
+dataset = pd.read_csv('data.csv')
+
+#Will want to adjust this piece based on your features columns and label column
+X = dataset.iloc[:, 0:4].values
+y = dataset.iloc[:, 4].values
+
+#setting up train and test
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=0)
+
+# Feature Scaling
+from sklearn.preprocessing import StandardScaler
+
+sc = StandardScaler()
+X_train = sc.fit_transform(X_train)
+X_test = sc.transform(X_test)
+
+
+#So, considering a question around binary classification of open or closed based on features we identify, we'd go with Classifier rather
+#than regressor
+
+classifier = RandomForestClassifier(n_estimators=20, random_state=0)
+classifier.fit(X_train, y_train)
+y_pred = regressor.predict(X_test)
+
+#checking out the results
+print(confusion_matrix(y_test,y_pred))
+print(classification_report(y_test,y_pred))
+print(accuracy_score(y_test, y_pred))
