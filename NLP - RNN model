@@ -1,1 +1,44 @@
-#add in RNN code here - could be helpful for time-based/sequential modeling 
+#This is an example of sequential RNN, but it was meant for generating text, so edits will need to be made.  However, if there
+#is something sequential to be looked into, this may be helpful
+
+#Generation
+#Get the fake news corpus together
+Fake = df.Body_clean[df['Label'] == 0]
+n_messages = len(Fake)
+n_chars = len(' '.join(map(str, Fake)))
+print(n_messages)
+print(n_chars)
+
+sample_size = int(len(Fake) * 0.5)
+Fake = Fake[:sample_size]
+Fake = ' '.join(map(str, Fake)).lower()
+Fake[:100] # Show first 100 characters
+#look at removing \n here
+
+chars = sorted(list(set(Fake)))
+print('Count of unique characters (i.e., features):', len(chars))
+
+char_indices = dict((c, i) 
+for i, c in enumerate(chars))
+indices_char = dict((i, c) 
+for i, c in enumerate(chars))
+
+maxlen = 40
+step = 3
+sentences = []
+next_chars = []
+for i in range(0, len(Fake) - maxlen, step):
+    sentences.append(Fake[i: i + maxlen])
+    next_chars.append(Fake[i + maxlen])
+    print('Number of sequences:', len(sentences), "\n")
+    print(sentences[:10], "\n")
+    print(next_chars[:10])
+
+
+##The rest is give or take, but this piece is the most translatable for non-generative sequential modeling
+model = Sequential()
+model.add(LSTM(128, input_shape=(maxlen, len(chars))))
+model.add(Dense(len(chars)))
+model.add(Activation('softmax'))
+optimizer = RMSprop(lr=0.01)
+model.compile(loss='categorical_crossentropy', optimizer=optimizer)
